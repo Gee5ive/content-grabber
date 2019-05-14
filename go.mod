@@ -9,6 +9,8 @@ require (
 	github.com/gammazero/deque v0.0.0-20190130191400-2afb3858e9c7 // indirect
 	github.com/gammazero/workerpool v0.0.0-20190406235159-88d534f22b56
 	github.com/hashicorp/go-multierror v1.0.0
+	github.com/mmcdole/gofeed v1.0.0-beta2 // indirect
+	github.com/mmcdole/goxpp v0.0.0-20181012175147-0068e33feabf // indirect
 	github.com/moul/http2curl v1.0.0 // indirect
 	github.com/parnurzeal/gorequest v0.2.15
 	github.com/pkg/errors v0.8.1 // indirect

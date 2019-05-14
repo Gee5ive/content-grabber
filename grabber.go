@@ -21,6 +21,11 @@ func sleep(delay RequestDelay) {
 	time.Sleep(time.Millisecond * time.Duration(sleepTime))
 }
 
+// Logger is a minimal interface for Logger instances
+type Logger interface {
+	Info(msg string, fields ...map[string]interface{})
+}
+
 type RequestDelay struct {
 	Max int
 	Min int
@@ -34,7 +39,6 @@ type DownloadResponse struct {
 }
 
 type ImageGrabber struct {
-	pool       *workerpool.WorkerPool
 	reqDelay   RequestDelay
 	pageDepth  int
 	sources    []ImageSource
@@ -42,95 +46,116 @@ type ImageGrabber struct {
 	errHandler ErrHandler
 	proxies    []string
 	saveDIR    string
+	maxConn    int
 	ctx        ctx.Context
 	done       ctx.CancelFunc
+	logger     Logger
 }
 
-func NewImageGrabber(maxConn int, pageDepth int, keyWords, proxies []string, sources []ImageSource, saveDIR string, delay RequestDelay, handler ErrHandler) ImageGrabber {
-	pool := workerpool.New(maxConn)
+func NewImageGrabber(maxConn int, pageDepth int, keyWords, proxies []string, sources []ImageSource, saveDIR string, delay RequestDelay, handler ErrHandler, logger ...Logger) ImageGrabber {
 	grabCtx, cancel := ctx.WithCancel(ctx.Background())
-	return ImageGrabber{pool: pool, keyWords: keyWords, pageDepth: pageDepth,
+	grabber := ImageGrabber{maxConn: maxConn, keyWords: keyWords, pageDepth: pageDepth,
 		sources: sources, errHandler: handler, proxies: proxies, saveDIR: saveDIR, ctx: grabCtx, done: cancel, reqDelay: delay}
+	if len(logger) > 0 {
+		grabber.logger = logger[0]
+	}
+	return grabber
+}
+
+func (g ImageGrabber) pool() *workerpool.WorkerPool {
+	return workerpool.New(g.maxConn)
 }
 
 func (g ImageGrabber) delay() {
 	sleep(g.reqDelay)
 }
-func (g ImageGrabber) Grab() []string {
-	startTime := time.Now()
-	log.Print("image grabber started")
-	proxy := func() string {
-		source := rand.NewSource(time.Now().UnixNano())
-		r := rand.New(source)
-		return g.proxies[r.Intn(len(g.proxies))]
+
+func (g ImageGrabber) proxy() string {
+	source := rand.NewSource(time.Now().UnixNano())
+	r := rand.New(source)
+	return g.proxies[r.Intn(len(g.proxies))]
+}
+
+func (g ImageGrabber) log(msg string, fields ...map[string]interface{}) {
+	if g.logger != nil {
+		g.logger.Info(msg, fields...)
 	}
+}
 
-	var imageURLChanList []<-chan ImagesResponse
-
+func (g ImageGrabber) grabURLS() []string {
+	pool := g.pool()
+	g.log("image grabber started")
+	var imageURLs []ImagesResponse
 	for _, source := range g.sources {
 		for _, keyword := range g.keyWords {
 			for i := 0; i < g.pageDepth; i++ {
 				g.delay()
-				log.Printf("imageURL scrape worker %d starterd", i)
+				g.log(fmt.Sprintf("imageURL grabber for keyword : %s worker %d starterd", keyword, i))
 				worker := func() {
-					res := source(g.ctx, keyword, proxy(), i)
-					imageURLChanList = append(imageURLChanList, res)
+					imageURLs = append(imageURLs, source(keyword, g.proxy(), i))
 				}
-				g.pool.Submit(worker)
+				pool.Submit(worker)
 			}
 		}
 	}
+	pool.StopWait()
 
 	var urls []string
-	for _, channels := range imageURLChanList {
-		for resp := range channels {
-			if resp.Err != nil {
-				g.errHandler.SendErr(resp.Err)
-				continue
-			}
-			for _, url := range resp.Images {
-				if url != "" {
-					urls = append(urls, url)
-				}
+	for _, resp := range imageURLs {
+
+		if resp.Err != nil {
+			g.errHandler.SendErr(resp.Err)
+			continue
+		}
+		for _, url := range resp.Images {
+			if url != "" {
+				urls = append(urls, url)
 			}
 		}
-	}
 
-	log.Print("finished parsing urls")
-	var downLoadChanList []<-chan DownloadResponse
-	log.Printf("image dowloading begun")
+	}
+	g.log("url scraping complete")
+	return urls
+
+}
+
+func (g ImageGrabber) Grab() []string {
+	pool := g.pool()
+	urls := g.grabURLS()
+	startTime := time.Now()
+	var downLoadList []DownloadResponse
+	g.log("image dowloading begun")
 	for i, url := range urls {
 		worker := func() {
-			proxy := proxy()
-			log.Print(fmt.Sprintf("download of image %s begun using proxy : %s download worker # %d", url, proxy, i))
-			res := downLoader(g.ctx, url, g.saveDIR, proxy)
-			downLoadChanList = append(downLoadChanList, res)
+			proxy := g.proxy()
+			g.log(fmt.Sprintf("download of image %s begun using proxy : %s download worker # %d", url, proxy, i))
+			res := downLoader(url, g.saveDIR, proxy)
+			downLoadList = append(downLoadList, res)
 		}
 		g.delay()
-		g.pool.Submit(worker)
+		pool.Submit(worker)
 	}
+	pool.StopWait()
 	var images []string
-	for _, fileChan := range downLoadChanList {
-		for resp := range fileChan {
-			if resp.Err != nil {
-				g.errHandler.SendErr(resp.Err)
-				continue
-			}
-			if resp.FilePath != "" {
-				images = append(images, resp.FilePath)
-			}
-
+	for _, resp := range downLoadList {
+		if resp.Err != nil {
+			g.errHandler.SendErr(resp.Err)
+			continue
 		}
+		if resp.FilePath != "" {
+			images = append(images, resp.FilePath)
+		}
+
 	}
 	endTime := time.Since(startTime)
-	log.Printf("image grabber job complete, took : %v", endTime)
+	g.log(fmt.Sprintf("image grabber job complete, took : %v", endTime))
 	return images
 }
 
 func (g ImageGrabber) Stop() {
 	g.done()
 }
-func downLoader(ctx ctx.Context, fileURL, saveDir, proxy string) <-chan DownloadResponse {
+func downLoader(fileURL, saveDir, proxy string) DownloadResponse {
 	getFilePath := func(file string) string {
 		parts := strings.Split(fileURL, "/")
 		return fmt.Sprintf("%s%s%s", saveDir, string(os.PathSeparator), parts[len(parts)-1])
@@ -174,16 +199,6 @@ func downLoader(ctx ctx.Context, fileURL, saveDir, proxy string) <-chan Download
 		return DownloadResponse{FilePath: filePath, Err: nil}
 
 	}
-	respChan := make(chan DownloadResponse)
-	go func() {
-		defer close(respChan)
-		select {
-		case <-ctx.Done():
-			respChan <- DownloadResponse{Err: ctx.Err()}
-			return
-		case respChan <- downLoad():
 
-		}
-	}()
-	return respChan
+	return downLoad()
 }

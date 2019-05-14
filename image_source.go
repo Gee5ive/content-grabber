@@ -1,15 +1,13 @@
 package ContentGrabber
 
 import (
-	ctx "context"
 	"errors"
 	"fmt"
-	"strings"
-	"time"
-
 	"github.com/PuerkitoBio/goquery"
 	"github.com/hashicorp/go-multierror"
 	"github.com/parnurzeal/gorequest"
+	"strings"
+	"time"
 )
 
 type ImagesResponse struct {
@@ -17,7 +15,7 @@ type ImagesResponse struct {
 	Err    error
 }
 
-type ImageSource func(ctx ctx.Context, keyWord, proxy string, pageNumber int) <-chan ImagesResponse
+type ImageSource func(keyWord, proxy string, pageNumber int) ImagesResponse
 type pageFunc func(pageNumber int, keyWord string) string
 type finderFunc func(doc *goquery.Document) []string
 
@@ -29,7 +27,7 @@ func client(proxy string) *gorequest.SuperAgent {
 
 }
 func ImageSourceFactory(pageFunc pageFunc, finderFunc finderFunc) ImageSource {
-	source := func(ctx ctx.Context, keyWord, proxy string, pageNumber int) <-chan ImagesResponse {
+	source := func(keyWord, proxy string, pageNumber int) ImagesResponse {
 		find := func() ImagesResponse {
 			distinct := func(inSlice []string) []string {
 				keys := make(map[string]bool)
@@ -70,18 +68,7 @@ func ImageSourceFactory(pageFunc pageFunc, finderFunc finderFunc) ImageSource {
 			return ImagesResponse{Images: images, Err: nil}
 
 		}
-		imageChan := make(chan ImagesResponse)
-		go func() {
-			defer close(imageChan)
-			select {
-			case <-ctx.Done():
-				imageChan <- ImagesResponse{Err: ctx.Err()}
-				return
-			case imageChan <- find():
-
-			}
-		}()
-		return imageChan
+		return find()
 	}
 	return source
 }
@@ -186,4 +173,8 @@ func IsoRepublic() ImageSource {
 		return images
 	}
 	return ImageSourceFactory(page, find)
+}
+
+func AllImageSources() []ImageSource {
+	return []ImageSource{IsoRepublic(), PicJumBo(), Burst(), ShutterStock(), PixaBay()}
 }
