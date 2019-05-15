@@ -7,7 +7,6 @@ import (
 	"github.com/gammazero/workerpool"
 	"github.com/hashicorp/go-multierror"
 	"io"
-	"log"
 	"math/rand"
 	"os"
 	"strings"
@@ -129,7 +128,7 @@ func (g ImageGrabber) Grab() []string {
 		worker := func() {
 			proxy := g.proxy()
 			g.log(fmt.Sprintf("download of image %s begun using proxy : %s download worker # %d", url, proxy, i))
-			res := downLoader(url, g.saveDIR, proxy)
+			res := g.downLoader(url, g.saveDIR, proxy)
 			downLoadList = append(downLoadList, res)
 		}
 		g.delay()
@@ -155,7 +154,7 @@ func (g ImageGrabber) Grab() []string {
 func (g ImageGrabber) Stop() {
 	g.done()
 }
-func downLoader(fileURL, saveDir, proxy string) DownloadResponse {
+func (g ImageGrabber) downLoader(fileURL, saveDir, proxy string) DownloadResponse {
 	getFilePath := func(file string) string {
 		parts := strings.Split(fileURL, "/")
 		return fmt.Sprintf("%s%s%s", saveDir, string(os.PathSeparator), parts[len(parts)-1])
@@ -195,7 +194,7 @@ func downLoader(fileURL, saveDir, proxy string) DownloadResponse {
 		if _, lErr := io.Copy(f, resp.Body); lErr != nil {
 			return DownloadResponse{Err: lErr}
 		}
-		log.Printf("file %s downloded worker complete", fileURL)
+		g.log(fmt.Sprintf("file %s downloded worker complete", fileURL))
 		return DownloadResponse{FilePath: filePath, Err: nil}
 
 	}

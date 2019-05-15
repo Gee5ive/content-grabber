@@ -175,6 +175,23 @@ func IsoRepublic() ImageSource {
 	return ImageSourceFactory(page, find)
 }
 
+func GifBin() ImageSource {
+	page := func(pageNumber int, keyWord string) string {
+		return fmt.Sprintf("http://www.gifbin.com/search/%s/%d", keyWord, pageNumber)
+	}
+	find := func(doc *goquery.Document) []string {
+		var images []string
+		doc.Find(".browse-thumbs-inner").Each(func(i int, s *goquery.Selection) {
+			img, ok := s.Find("img").Attr("src")
+			if ok && img != "" {
+				images = append(images, "http://www.gifbin.com"+strings.Replace(img, "tn_", "poster-", 1))
+			}
+		})
+		return images
+	}
+	return ImageSourceFactory(page, find)
+}
+
 func AllImageSources() []ImageSource {
 	return []ImageSource{IsoRepublic(), PicJumBo(), Burst(), ShutterStock(), PixaBay()}
 }
