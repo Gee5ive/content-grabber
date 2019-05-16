@@ -1,4 +1,4 @@
-package ContentGrabber
+package contentGrabber
 
 import (
 	ctx "context"

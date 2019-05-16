@@ -1,4 +1,4 @@
-module contentGrabber
+module github.com/Gee5ive/content-grabber
 
 go 1.12
 
