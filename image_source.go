@@ -10,11 +10,13 @@ import (
 	"time"
 )
 
+var ImageSourceMap map[string]ImageSource = map[string]ImageSource{"pixabay": PixaBay(), "shutterstock": ShutterStock(),
+	"burst.shopify": Burst(), "picjumbo": PicJumBo(), "isorepublic": IsoRepublic(), "gifbin": GifBin()}
+
 type ImagesResponse struct {
 	Images []string
 	Err    error
 }
-
 type ImageSource func(keyWord, proxy string, pageNumber int) ImagesResponse
 type pageFunc func(pageNumber int, keyWord string) string
 type finderFunc func(doc *goquery.Document) []string
@@ -190,6 +192,17 @@ func GifBin() ImageSource {
 		return images
 	}
 	return ImageSourceFactory(page, find)
+}
+
+func ImageSourcesFromStrings(names []string) []ImageSource {
+	var sources []ImageSource
+	if names != nil && len(names) > 0 {
+		for _, name := range names {
+			cleanName := strings.ToLower(strings.TrimSpace(name))
+			sources = append(sources, ImageSourceMap[cleanName])
+		}
+	}
+	return sources
 }
 
 func AllImageSources() []ImageSource {
