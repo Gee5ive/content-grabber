@@ -26,8 +26,8 @@ type Logger interface {
 }
 
 type RequestDelay struct {
-	Max int
-	Min int
+	Max int // max time to delay in milliseconds
+	Min int // min time to delay in milliseconds
 }
 type ErrHandler interface {
 	SendErr(err error)
